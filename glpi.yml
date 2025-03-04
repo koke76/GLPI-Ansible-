@@ -1,0 +1,85 @@
+---
+- name: Installation et déploiement de GLPI
+  hosts: all
+  become: yes
+  vars:
+    mysql_root_password: "toto"
+    glpi_db_name: "glpi"
+    glpi_db_user: "toto"
+    glpi_db_password: "toto"
+  tasks:
+    - name: Installation des paquets
+      apt:
+        name: 
+          - python3-pymysql
+          - apache2
+          - php
+          - php-mysql
+          - php-curl
+          - php-gd
+          - php-xml
+          - php-mbstring
+          - php-intl
+          - php-zip
+          - php-bz2
+          - php-ldap
+          - mariadb-server
+        state: present
+        update_cache: yes
+    - name: Configuration du mot de passe root MySQL
+      mysql_user:
+        name: root
+        host: localhost
+        password: "{{ mysql_root_password }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        state: present
+        check_implicit_admin: yes
+    - name: Création du fichier .my.cnf
+      copy:
+        content: |
+          [client]
+          user=root
+          password={{ mysql_root_password }}
+        dest: /root/.my.cnf
+        mode: '0600'
+    - name: Création de la base de données GLPI
+      mysql_db:
+        name: "{{ glpi_db_name }}"
+        state: present
+    - name: Création de l'utilisateur DB
+      mysql_user:
+        name: "{{ glpi_db_user }}"
+        password: "{{ glpi_db_password }}"
+        priv: "{{ glpi_db_name }}.*:ALL"
+        state: present
+    - name: Téléchargement et extraction de GLPI
+      unarchive:
+        src: "https://github.com/glpi-project/glpi/releases/download/10.0.18/glpi-10.0.18.tgz"
+        dest: "/var/www/html/"
+        remote_src: yes
+    - name: Configuration des permissions
+      file:
+        path: "/var/www/html/glpi"
+        owner: www-data
+        group: www-data
+        recurse: yes
+        mode: '0755'
+    - name: Configuration Apache
+      copy:
+        content: |
+<VirtualHost *:80>
+              ServerName glpi.local
+              DocumentRoot /var/www/html/glpi
+<Directory /var/www/html/glpi>
+                  Options FollowSymlinks
+                  AllowOverride All
+                  Require all granted
+</Directory>
+</VirtualHost> 
+        dest: /etc/apache2/sites-available/glpi.conf
+    - name: Activation du site
+      command: a2ensite glpi.conf
+    - name: Redémarrage Apache
+      service:
+        name: apache2
+        state: restarted
